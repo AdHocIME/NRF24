@@ -64,6 +64,13 @@ osThreadId defaultTaskHandle;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+#define DEMO_TX_SINGLE 0
+#define DEMO_RX_SINGLE 1
+// Kinda foolproof :)
+#if ((DEMO_RX_SINGLE + DEMO_TX_SINGLE) != 1)
+#error "Define only one DEMO_xx, use the '1' value"
+#endif
+
 #define nRF24_WAIT_TIMEOUT         (uint32_t)0x000FFFFF
 
 typedef enum {
@@ -362,8 +369,6 @@ void StartDefaultTask(void const * argument)
   osDelay(400);
   if(nRF24_Check()){
 	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);
-  }else{
-	  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET);
   }
   nRF24_Init();
   osDelay(600);
@@ -373,6 +378,7 @@ void StartDefaultTask(void const * argument)
 	//   - RF channel: 115 (2515MHz)
 	//   - data rate: 250kbps (minimum possible, to increase reception reliability)
 	//   - CRC scheme: 2 byte
+#if (DEMO_TX_SINGLE)
 
   // The transmitter sends a 5-byte packets to the address '0xE7 0x1C 0xE3' without Auto-ACK (ShockBurst disabled)
 
@@ -416,6 +422,68 @@ void StartDefaultTask(void const * argument)
     HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
 	nRF24_TransmitPacket(nRF24_payload, payload_length);
   }
+#endif // DEMO_TX_SINGLE
+#if (DEMO_RX_SINGLE)
+
+	// This is simple receiver with one RX pipe:
+	//   - pipe#1 address: '0xE7 0x1C 0xE3'
+	//   - payload: 5 bytes
+	//   - RF channel: 115 (2515MHz)
+	//   - data rate: 250kbps (minimum possible, to increase reception reliability)
+	//   - CRC scheme: 2 byte
+
+  // The transmitter sends a 5-byte packets to the address '0xE7 0x1C 0xE3' without Auto-ACK (ShockBurst disabled)
+
+  // Disable ShockBurst for all RX pipes
+  nRF24_DisableAA(0xFF);
+
+  // Set RF channel
+  nRF24_SetRFChannel(115);
+
+  // Set data rate
+  nRF24_SetDataRate(nRF24_DR_250kbps);
+
+  // Set CRC scheme
+  nRF24_SetCRCScheme(nRF24_CRC_2byte);
+
+  // Set address width, its common for all pipes (RX and TX)
+  nRF24_SetAddrWidth(3);
+
+  // Configure RX PIPE#1
+  static const uint8_t nRF24_ADDR[] = { 0xE7, 0x1C, 0xE3 };
+  nRF24_SetAddr(nRF24_PIPE1, nRF24_ADDR); // program address for RX pipe #1
+  nRF24_SetRXPipe(nRF24_PIPE1, nRF24_AA_OFF, 5); // Auto-ACK: disabled, payload length: 5 bytes
+
+  // Set operational mode (PRX == receiver)
+  nRF24_SetOperationalMode(nRF24_MODE_RX);
+
+  // Wake the transceiver
+  nRF24_SetPowerMode(nRF24_PWR_UP);
+
+  // Put the transceiver to the RX mode
+  nRF24_CE_H();
+
+
+  // The main loop
+  while (1) {
+  	//
+  	// Constantly poll the status of the RX FIFO and get a payload if FIFO is not empty
+  	//
+  	// This is far from best solution, but it's ok for testing purposes
+  	// More smart way is to use the IRQ pin :)
+  	//
+  	if (nRF24_GetStatus_RXFIFO() != nRF24_STATUS_RXFIFO_EMPTY) {
+  		// Get a payload from the transceiver
+  		pipe = nRF24_ReadPayload(nRF24_payload, &payload_length);
+		nRF24_ClearIRQFlags();
+		HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_13);
+  	}
+  }
+
+#endif // DEMO_RX_SINGLE
+
+/***************************************************************************/
+
   /* USER CODE END 5 */ 
 }
 
